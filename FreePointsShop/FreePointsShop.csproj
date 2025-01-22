@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<TargetFramework>net9.0</TargetFramework>
+		<NoWarn>CA1812</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="JetBrains.Annotations" PrivateAssets="all" />
+		<PackageReference Include="System.Composition.AttributedModel" IncludeAssets="compile" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\ArchiSteamFarm\ArchiSteamFarm\ArchiSteamFarm.csproj" ExcludeAssets="all" Private="false" />
+	</ItemGroup>
+
+	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
+		<Copy SourceFolders="$(TargetDir)" DestinationFolder="..\ArchiSteamFarm\ArchiSteamFarm\bin\$(Configuration)\$(TargetFramework)\plugins\$(AssemblyName)\" SkipUnchangedFiles="true" />
+	</Target>
+</Project>
