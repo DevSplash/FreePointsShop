@@ -55,16 +55,13 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 			}
 		}
 		lock (AutoRunSemaphore) {
-			_ = Config.Interval != 0
-				? AutoRunTimer.Change(TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(Config.Interval))
-				: AutoRunTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+			if (Config.Interval != 0) {
+				AutoRunTimer.Change(TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(Config.Interval));
+			} else {
+				AutoRunTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+			}
 		}
 		return Task.CompletedTask;
-	}
-	private static async Task<List<EligibleApp>?> GetEligibleApps() {
-		Uri uri = new(SteamApiURL, "/ILoyaltyRewardsService/GetEligibleApps/v1/");
-		ObjectResponse<EligibleAppsResponse>? response = await ASF.WebBrowser!.UrlGetToJsonObject<EligibleAppsResponse>(uri, referer: RefererURL).ConfigureAwait(false);
-		return response != null && response.StatusCode.IsSuccessCode() ? response.Content?.Response?.Apps : null;
 	}
 	private static async Task<List<RewardItem>> QueryRewardItems(List<uint>? appids = null, List<uint>? definitionids = null, List<uint>? excludedAppids = null, List<int>? rewardTypes = null, List<int>? communityItemClasses = null, List<int>? excludedCommunityItemClasses = null, ushort? count = null, string? cursor = null, uint maxPageNum = 1) {
 		NameValueCollection parameters = [];
@@ -124,58 +121,6 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 		}
 		return rewardItems;
 	}
-	private static async Task<List<RewardItem>> BatchedQueryRewardItems(List<BatchedQueryRequestData> batchedQueryData, uint maxPageNum = 1) {
-		List<RewardItem> rewardItems = [];
-		BatchedQueryRequest batchedQueryRequest = new(batchedQueryData);
-		uint page = 0;
-		List<uint> itemCounts = [];
-		while (true) {
-			Uri uri = new(SteamApiURL, $"/ILoyaltyRewardsService/BatchedQueryRewardItems/v1/?input_json={Uri.EscapeDataString(batchedQueryRequest.ToJsonText())}");
-			ObjectResponse<BatchedQueryResponse>? response = await ASF.WebBrowser!.UrlGetToJsonObject<BatchedQueryResponse>(uri, referer: RefererURL).ConfigureAwait(false);
-			List<BatchedQueryResponseData>? responseDataList = response?.Content?.Response?.Responses;
-			if (responseDataList == null || responseDataList.Count == 0) {
-				break;
-			}
-			List<int> indexesToRemove = [];
-			for (int i = 0; i < responseDataList.Count; i++) {
-				RewardItemsData? data = responseDataList[i].Response;
-				if (itemCounts.Count <= i) {
-					itemCounts.Add(0);
-				}
-				if (data == null || data.Definitions == null) {
-					indexesToRemove.Add(i);
-					continue;
-				}
-				foreach (RewardItem item in data.Definitions) {
-					if (item.DefId != null && !rewardItems.Any(rewardItem => rewardItem.DefId == item.DefId)) {
-						rewardItems.Add(item);
-					}
-				}
-				itemCounts[i] += data.Count ?? 0;
-				if (itemCounts[i] >= data.TotalCount) {
-					indexesToRemove.Add(i);
-					continue;
-				}
-				if (string.IsNullOrWhiteSpace(data.NextCursor) || batchedQueryData[i].Cursor == data.NextCursor || data.NextCursor == "*") {
-					indexesToRemove.Add(i);
-					continue;
-				}
-				batchedQueryData[i].Cursor = data.NextCursor;
-			}
-			if (maxPageNum != 0 && ++page >= maxPageNum) {
-				break;
-			}
-			for (int i = indexesToRemove.Count - 1; i >= 0; i--) {
-				int index = indexesToRemove[i];
-				itemCounts.RemoveAt(index);
-				batchedQueryData.RemoveAt(index);
-			}
-			if (batchedQueryData.Count == 0) {
-				break;
-			}
-		}
-		return rewardItems;
-	}
 	private static async Task<CommunityInventoryResponse?> GetCommunityInventory(Bot bot, List<uint>? appids = null) {
 		ArgumentNullException.ThrowIfNull(bot.AccessToken);
 		NameValueCollection parameters = [];
@@ -203,7 +148,7 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 		List<RewardItem> items = [];
 		HashSet<uint> processedDefIds = [];
 		HashSet<uint> unknownDefIds = [];
-		HashSet<uint> defIds = bundleItems.Where(item => item.BundleDefIds?.Count != 0).SelectMany(item => item.BundleDefIds ?? []).ToHashSet();
+		HashSet<uint> defIds = [.. bundleItems.Where(item => item.BundleDefIds?.Count != 0).SelectMany(item => item.BundleDefIds ?? [])];
 		await QueryBundleDefIds(defIds, rewardItems ?? bundleItems, processedDefIds, unknownDefIds, items).ConfigureAwait(false);
 		if (unknownDefIds.Count > 0) {
 			ASF.ArchiLogger.LogGenericWarning($"[{nameof(FreePointsShop)}] Definitionids could not be found: ${string.Join(", ", unknownDefIds)}");
@@ -218,9 +163,9 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 				RewardItem? rewardItem = rewardItems.FirstOrDefault(o => o.DefId == defId);
 				if (rewardItem != null) {
 					items.Add(rewardItem);
-					_ = processedDefIds.Add(defId);
+					processedDefIds.Add(defId);
 				} else {
-					_ = defIdsToQuery.Add(defId);
+					defIdsToQuery.Add(defId);
 				}
 			}
 		}
@@ -230,17 +175,17 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 				List<RewardItem> fetchedItems = await QueryRewardItems(definitionids: [.. defIdsToQuery], count: 1000, maxPageNum: 0).ConfigureAwait(false);
 				foreach (RewardItem item in fetchedItems) {
 					if (item.DefId != null) {
-						_ = fetchedDefIds.Add(item.DefId.Value);
+						fetchedDefIds.Add(item.DefId.Value);
 						if (!processedDefIds.Contains(item.DefId.Value)) {
 							items.Add(item);
-							_ = processedDefIds.Add(item.DefId.Value);
+							processedDefIds.Add(item.DefId.Value);
 						}
 					}
 				}
 			}
 			foreach (uint defId in defIdsToQuery.Except(fetchedDefIds)) {
-				_ = processedDefIds.Add(defId);
-				_ = unknownDefIds.Add(defId);
+				processedDefIds.Add(defId);
+				unknownDefIds.Add(defId);
 			}
 		}
 		defIds.Clear();
@@ -249,7 +194,7 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 				if (item.BundleDefIds != null && item.BundleDefIds.Count != 0) {
 					foreach (uint defId in item.BundleDefIds) {
 						if (!processedDefIds.Contains(defId)) {
-							_ = defIds.Add(defId);
+							defIds.Add(defId);
 						}
 					}
 				}
@@ -267,9 +212,9 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 		HashSet<uint> ownedDefIds = [];
 		foreach (RewardItem bundleItem in bundleItems) {
 			List<RewardItem> items = [];
-			await QueryBundleDefIds([.. bundleItem.BundleDefIds], bundleDefs, [], [], result: items, fetchRemote: false).ConfigureAwait(false);
+			await QueryBundleDefIds([.. bundleItem.BundleDefIds ?? []], bundleDefs, [], [], result: items, fetchRemote: false).ConfigureAwait(false);
 			if (items.Count != 0) {
-				itemsNotFound = items.Where(item => !ownedDefIds.Any(defId => defId == item.DefId)).ToList();
+				itemsNotFound = [.. items.Where(item => !ownedDefIds.Any(defId => defId == item.DefId))];
 				if (itemsNotFound.Count == 0) {
 					continue;
 				}
@@ -278,7 +223,7 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 					foreach (CommunityInventoryData inventoryData in communityInventory) {
 						RewardItem? ownedItem = itemsNotFound.FirstOrDefault(item => item.AppId == inventoryData.AppId && item.CommunityItemType == inventoryData.ItemType);
 						if (ownedItem != null) {
-							_ = ownedDefIds.Add(ownedItem.DefId!.Value);
+							ownedDefIds.Add(ownedItem.DefId!.Value);
 						}
 					}
 					if (!itemsNotFound.Any(item => !ownedDefIds.Any(defId => defId == item.DefId))) {
@@ -289,20 +234,20 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 			if (await RedeemPoints(bot, bundleItem.DefId!.Value).ConfigureAwait(false)) {
 				ASF.ArchiLogger.LogGenericInfo($"[{bot.BotName}] Item {bundleItem.DefId!.Value} redeemed successfully!");
 				foreach (uint defId in bundleItem.BundleDefIds!) {
-					_ = ownedDefIds.Add(defId);
+					ownedDefIds.Add(defId);
 				}
 			} else {
 				ASF.ArchiLogger.LogGenericWarning($"[{bot.BotName}] Item {bundleItem.DefId!.Value} could not be redeemed! ({bundleItem.ToJsonText()})");
 			}
 		}
-		itemsNotFound = singleItems.Where(item => !ownedDefIds.Any(defId => defId == item.DefId)).ToList();
+		itemsNotFound = [.. singleItems.Where(item => !ownedDefIds.Any(defId => defId == item.DefId))];
 		if (itemsNotFound.Count > 0) {
 			List<CommunityInventoryData>? communityInventory = (await GetCommunityInventory(bot, [.. itemsNotFound.Where(o => o.AppId != null).Select(o => o.AppId!.Value).Distinct()]).ConfigureAwait(false))?.Response?.Items;
 			if (communityInventory?.Count > 0) {
 				foreach (CommunityInventoryData inventoryData in communityInventory) {
 					RewardItem? ownedItem = itemsNotFound.FirstOrDefault(item => item.AppId == inventoryData.AppId && item.CommunityItemType == inventoryData.ItemType);
 					if (ownedItem != null) {
-						_ = itemsNotFound.Remove(ownedItem);
+						itemsNotFound.Remove(ownedItem);
 					}
 				}
 			}
@@ -368,7 +313,7 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 						try {
 							await ClaimItemTask(bot, bundleItems, singleItems, bundleDefs).ConfigureAwait(false);
 						} finally {
-							_ = BotSemaphore.Release();
+							BotSemaphore.Release();
 						}
 					}));
 				} else {
@@ -377,7 +322,7 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 			}
 			await Task.WhenAll([.. tasks]).ConfigureAwait(false);
 		} finally {
-			_ = AutoRunSemaphore.Release();
+			AutoRunSemaphore.Release();
 		}
 	}
 	public async Task<Uri?> GetTargetReleaseURL(Version asfVersion, string asfVariant, bool asfUpdate, bool stable, bool forced) {
