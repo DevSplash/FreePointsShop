@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Collections.Specialized;
 using System.Globalization;
 using System.Linq;
 using System.Text.Json;
@@ -64,27 +63,27 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 		return Task.CompletedTask;
 	}
 	private static async Task<List<RewardItem>> QueryRewardItems(List<uint>? appids = null, List<uint>? definitionids = null, List<uint>? excludedAppids = null, List<int>? rewardTypes = null, List<int>? communityItemClasses = null, List<int>? excludedCommunityItemClasses = null, ushort? count = null, string? cursor = null, uint maxPageNum = 1) {
-		NameValueCollection parameters = [];
+		Dictionary<string, string> parameters = [];
 		for (int i = 0; i < appids?.Count; i++) {
-			parameters.Add($"appids[{i}]", $"{appids[i]}");
+			parameters[$"appids[{i}]"] = $"{appids[i]}";
 		}
 		for (int i = 0; i < definitionids?.Count; i++) {
-			parameters.Add($"definitionids[{i}]", $"{definitionids[i]}");
+			parameters[$"definitionids[{i}]"] = $"{definitionids[i]}";
 		}
 		for (int i = 0; i < excludedAppids?.Count; i++) {
-			parameters.Add($"excluded_appids[{i}]", $"{excludedAppids[i]}");
+			parameters[$"excluded_appids[{i}]"] = $"{excludedAppids[i]}";
 		}
 		for (int i = 0; i < rewardTypes?.Count; i++) {
-			parameters.Add($"reward_types[{i}]", $"{rewardTypes[i]}");
+			parameters[$"reward_types[{i}]"] = $"{rewardTypes[i]}";
 		}
 		for (int i = 0; i < communityItemClasses?.Count; i++) {
-			parameters.Add($"community_item_classes[{i}]", $"{communityItemClasses[i]}");
+			parameters[$"community_item_classes[{i}]"] = $"{communityItemClasses[i]}";
 		}
 		for (int i = 0; i < excludedCommunityItemClasses?.Count; i++) {
-			parameters.Add($"excluded_community_item_classes[{i}]", $"{excludedCommunityItemClasses[i]}");
+			parameters[$"excluded_community_item_classes[{i}]"] = $"{excludedCommunityItemClasses[i]}";
 		}
 		if (count.HasValue) {
-			parameters.Add("count", $"{count}");
+			parameters["count"] = $"{count}";
 		}
 		List<RewardItem> rewardItems = [];
 		uint page = 0;
@@ -95,7 +94,7 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 			} else {
 				parameters.Remove("cursor");
 			}
-			string queryString = string.Join('&', parameters.AllKeys.Select(name => $"{Uri.EscapeDataString(name ?? string.Empty)}={Uri.EscapeDataString(parameters[name] ?? string.Empty)}"));
+			string queryString = string.Join('&', parameters.Select(kv => $"{Uri.EscapeDataString(kv.Key ?? string.Empty)}={Uri.EscapeDataString(kv.Value ?? string.Empty)}"));
 			Uri uri = new(SteamApiURL, $"/ILoyaltyRewardsService/QueryRewardItems/v1/{(string.IsNullOrWhiteSpace(queryString) ? string.Empty : $"?{queryString}")}");
 			ObjectResponse<RewardItemsResponse>? response = await ASF.WebBrowser!.UrlGetToJsonObject<RewardItemsResponse>(uri, referer: RefererURL).ConfigureAwait(false);
 			RewardItemsData? data = response?.Content?.Response;
@@ -123,12 +122,12 @@ internal sealed partial class FreePointsShop : IASF, IGitHubPluginUpdates, IDisp
 	}
 	private static async Task<CommunityInventoryResponse?> GetCommunityInventory(Bot bot, List<uint>? appids = null) {
 		ArgumentNullException.ThrowIfNull(bot.AccessToken);
-		NameValueCollection parameters = [];
-		parameters.Add("access_token", $"{bot.AccessToken}");
+		Dictionary<string, string> parameters = [];
+		parameters["access_token"] = $"{bot.AccessToken}";
 		for (int i = 0; i < appids?.Count; i++) {
-			parameters.Add($"filter_appids[{i}]", $"{appids[i]}");
+			parameters[$"filter_appids[{i}]"] = $"{appids[i]}";
 		}
-		string queryString = string.Join('&', parameters.AllKeys.Select(name => $"{Uri.EscapeDataString(name ?? string.Empty)}={Uri.EscapeDataString(parameters[name] ?? string.Empty)}"));
+		string queryString = string.Join('&', parameters.Select(kv => $"{Uri.EscapeDataString(kv.Key ?? string.Empty)}={Uri.EscapeDataString(kv.Value ?? string.Empty)}"));
 		Uri uri = new(SteamApiURL, $"/IQuestService/GetCommunityInventory/v1/?{queryString}");
 		ObjectResponse<CommunityInventoryResponse>? response = await bot.ArchiWebHandler.UrlGetToJsonObjectWithSession<CommunityInventoryResponse>(uri, referer: RefererURL).ConfigureAwait(false);
 		return response != null && response.StatusCode.IsSuccessCode() ? response.Content : null;
